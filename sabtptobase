@@ -1,0 +1,140 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Local Player Setup
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+-- Globals
+local random = Random.new()
+local teleporting = false
+local void = CFrame.new(0, -3.4028235e+38, 0)
+local tpAmt
+
+-- Update character on respawn
+player.CharacterAdded:Connect(function(newChar)
+	char = newChar
+	humanoid = char:WaitForChild("Humanoid")
+	hrp = char:WaitForChild("HumanoidRootPart")
+end)
+
+-- Ping-based dynamic teleport amount
+task.spawn(function()
+	while true do
+		local ping = player:GetNetworkPing() * 1000
+		tpAmt = math.clamp(math.floor(ping * 0.7), 20, 90)
+		RunService.Heartbeat:Wait()
+	end
+end)
+
+-- Smooth teleport function
+local function TP(position)
+	if not teleporting and hrp then
+		teleporting = true
+
+		if typeof(position) == "CFrame" then
+			-- Add slight jitter to avoid anti-cheat detection
+			local jitter = Vector3.new(
+				random:NextNumber(-0.0001, 0.0001),
+				random:NextNumber(-0.0001, 0.0001),
+				random:NextNumber(-0.0001, 0.0001)
+			)
+			hrp.CFrame = position + jitter
+			RunService.Heartbeat:Wait()
+		end
+
+		teleporting = false
+	end
+end
+
+-- Teleport to your plot's Multiplier part by detecting your plot automatically
+local function TPToyourMultiplierPart()
+	local yourName = player.Name
+	local plotsFolder = workspace:FindFirstChild("Plots")
+	if not plotsFolder then
+		warn("No Plots folder found in workspace.")
+		return
+	end
+
+	local yourPlot = nil
+	local foundBases = {}
+
+	for _, plot in pairs(plotsFolder:GetChildren()) do
+		local plotSign = plot:FindFirstChild("PlotSign")
+		if plotSign then
+			local textLabel = plotSign:FindFirstChild("SurfaceGui")
+				and plotSign.SurfaceGui:FindFirstChild("Frame")
+				and plotSign.SurfaceGui.Frame:FindFirstChild("TextLabel")
+
+			if textLabel then
+				local content = textLabel.Text or textLabel.ContentText or ""
+				local contentLower = content:lower()
+				local usernameLower = yourName:lower()
+				-- Pattern: username + any apostrophe ´ or ' or ` + s base (case insensitive)
+				local pattern = usernameLower .. "[´'`]" .. "s base"
+
+				table.insert(foundBases, {PlotName = plot.Name, OwnerText = content})
+				print(string.format("Found base: %s with owner text: %s", plot.Name, content))
+
+				if contentLower:find(pattern) then
+					yourPlot = plot
+					print("Matched your base at plot: " .. plot.Name)
+					break
+				end
+			else
+				print("PlotSign found but TextLabel missing in plot: " .. plot.Name)
+			end
+		else
+			print("No PlotSign found in plot: " .. plot.Name)
+		end
+	end
+
+	if not yourPlot then
+		warn("Your base was not found among these plots:")
+		for _, baseInfo in pairs(foundBases) do
+			print(string.format(" - Plot: %s, TextLabel: %s", baseInfo.PlotName, baseInfo.OwnerText))
+		end
+		return
+	end
+
+	local multiplierPart = yourPlot:FindFirstChild("Multiplier")
+	if not multiplierPart or not multiplierPart:IsA("BasePart") then
+		warn("Multiplier part not found or is not a BasePart inside your plot.")
+		return
+	end
+
+	local target = multiplierPart.CFrame * CFrame.new(0, 2, 0)
+
+	-- Phase 1: Initial spam TP
+	for i = 1, math.floor((tpAmt or 60) * 0.7) do
+		TP(target)
+	end
+
+	-- Phase 2: Void reset
+	TP(void)
+	RunService.Heartbeat:Wait()
+	TP(void)
+	RunService.Heartbeat:Wait()
+
+	-- Phase 3: Final TP accuracy phase
+	for i = 1, math.floor((tpAmt or 60) / 10) do
+		TP(target)
+	end
+
+	-- Final touch-ups if needed
+	local distance = (hrp.Position - target.Position).Magnitude
+	if distance > 30 then
+		for i = 1, 5 do
+			TP(target)
+			RunService.Heartbeat:Wait()
+		end
+	end
+
+	print("Teleported to your Multiplier part successfully.")
+end
+
+-- Run teleport
+TPToyourMultiplierPart()
