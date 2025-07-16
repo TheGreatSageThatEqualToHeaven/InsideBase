@@ -1,0 +1,100 @@
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+
+local plotsFolder = Workspace:WaitForChild("Plots")
+
+local customESP = {}
+
+-- Create ESP for a single plot
+local function createESPForPlot(plotInstance)
+    if customESP[plotInstance] then return end -- already exists
+
+    local purchases = plotInstance:FindFirstChild("Purchases")
+    if not purchases then return end
+
+    local plotBlock = purchases:FindFirstChild("PlotBlock")
+    if not plotBlock then return end
+
+    local main = plotBlock:FindFirstChild("Main")
+    if not main then return end
+
+    local billboardGuiOrig = main:FindFirstChild("BillboardGui")
+    if not billboardGuiOrig then return end
+
+    local remainingTimeOrig = billboardGuiOrig:FindFirstChild("RemainingTime")
+    if not remainingTimeOrig then return end
+    if not (remainingTimeOrig:IsA("TextLabel") or remainingTimeOrig:IsA("TextBox")) then return end
+
+    local espGui = Instance.new("BillboardGui")
+    espGui.Name = "RemainingTimeESP"
+    espGui.Adornee = main
+    espGui.Size = UDim2.new(0, 200, 0, 60)
+    espGui.StudsOffset = Vector3.new(0, 5, 0)
+    espGui.AlwaysOnTop = true
+    espGui.MaxDistance = math.huge
+    espGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Name = "RemainingTimeLabel"
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.TextColor3 = Color3.new(1, 1, 1)
+    textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    textLabel.TextStrokeTransparency = 0
+    textLabel.Font = Enum.Font.SourceSansBold
+    textLabel.TextScaled = true
+    textLabel.Parent = espGui
+
+    local function updateESPText()
+        local text = remainingTimeOrig.Text
+        if text == "0s" or text == "0" then
+            textLabel.Text = "Unlocked"
+        else
+            textLabel.Text = text
+        end
+    end
+
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        if not espGui or not espGui.Parent then
+            connection:Disconnect()
+            customESP[plotInstance] = nil
+            return
+        end
+        updateESPText()
+    end)
+
+    customESP[plotInstance] = espGui
+    print("[DEBUG] Created ESP for plot:", plotInstance.Name)
+end
+
+-- Remove ESP for a plot
+local function removeESPForPlot(plotInstance)
+    local espGui = customESP[plotInstance]
+    if espGui then
+        espGui:Destroy()
+        customESP[plotInstance] = nil
+        print("[DEBUG] Removed ESP for plot:", plotInstance.Name)
+    end
+end
+
+-- Initialize existing plots
+for _, plotInstance in pairs(plotsFolder:GetChildren()) do
+    createESPForPlot(plotInstance)
+end
+
+-- Listen for new plots added
+plotsFolder.ChildAdded:Connect(function(newPlot)
+    print("[DEBUG] New plot added:", newPlot.Name)
+    wait(1) -- give time for plot hierarchy to build
+    createESPForPlot(newPlot)
+end)
+
+-- Listen for plots removed
+plotsFolder.ChildRemoved:Connect(function(removedPlot)
+    print("[DEBUG] Plot removed:", removedPlot.Name)
+    removeESPForPlot(removedPlot)
+end)
+
+-- Optional: Clean up all ESP on player leaving/rejoining handled automatically by LocalScript lifecycle
+
