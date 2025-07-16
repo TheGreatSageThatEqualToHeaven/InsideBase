@@ -1,0 +1,124 @@
+--// Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+--// Local Player Setup
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+--// Globals
+local random = Random.new()
+local teleporting = false
+local void = CFrame.new(0, -3.4028235e+38, 0)
+local tpAmt
+
+-- Reconnect character if respawned
+player.CharacterAdded:Connect(function(newChar)
+	char = newChar
+	humanoid = char:WaitForChild("Humanoid")
+	hrp = char:WaitForChild("HumanoidRootPart")
+end)
+
+-- Ping-based dynamic teleporting amount
+task.spawn(function()
+	while true do
+		local ping = player:GetNetworkPing() * 1000
+		tpAmt = math.clamp(math.floor(ping * 0.7), 20, 90)
+		RunService.Heartbeat:Wait()
+	end
+end)
+
+-- Smooth and stable teleport function
+local function TP(position)
+	if not teleporting and hrp then
+		teleporting = true
+
+		if typeof(position) == "CFrame" then
+			-- Add very slight jitter to avoid anti-cheat
+			local jitter = Vector3.new(
+				random:NextNumber(-0.0001, 0.0001),
+				random:NextNumber(-0.0001, 0.0001),
+				random:NextNumber(-0.0001, 0.0001)
+			)
+			hrp.CFrame = position + jitter
+			RunService.Heartbeat:Wait()
+		end
+
+		teleporting = false
+	end
+end
+
+-- Main function: TP Inside Nearest Base
+local function TPNearestBase()
+	local plotsFolder = workspace:FindFirstChild("Plots")
+	if not plotsFolder then return end
+
+	local closestSpawn = nil
+	local shortestDistance = math.huge
+
+	for _, plot in pairs(plotsFolder:GetChildren()) do
+		local plotSign = plot:FindFirstChild("PlotSign")
+		if plotSign then
+			local label = plotSign:FindFirstChild("SurfaceGui")
+				and plotSign.SurfaceGui:FindFirstChild("Frame")
+				and plotSign.SurfaceGui.Frame:FindFirstChild("TextLabel")
+
+			if label and label.ContentText ~= "Empty Base" then
+				local yourBase = plotSign:FindFirstChild("YourBase")
+				if yourBase and not yourBase.Enabled then
+					local podiums = plot:FindFirstChild("AnimalPodiums")
+					if podiums then
+						for _, podium in pairs(podiums:GetChildren()) do
+							if podium:IsA("Model") then
+								local spawn = podium:FindFirstChild("Base")
+									and podium.Base:FindFirstChild("Spawn")
+
+								if spawn then
+									local dist = (spawn.Position - hrp.Position).Magnitude
+									if dist < shortestDistance then
+										shortestDistance = dist
+										closestSpawn = spawn
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if not closestSpawn then return end
+
+	local target = closestSpawn.CFrame * CFrame.new(0, 2, 0)
+
+	-- Phase 1: Initial spam TP
+	for i = 1, math.floor((tpAmt or 60) * 0.7) do
+		TP(target)
+	end
+
+	-- Phase 2: Void reset
+	TP(void)
+	RunService.Heartbeat:Wait()
+	TP(void)
+	RunService.Heartbeat:Wait()
+
+	-- Phase 3: Final TP accuracy phase
+	for i = 1, math.floor((tpAmt or 60) / 10) do
+		TP(target)
+	end
+
+	-- Final touch-ups if needed
+	local distance = (hrp.Position - target.Position).Magnitude
+	if distance > 30 then
+		for i = 1, 5 do
+			TP(target)
+			RunService.Heartbeat:Wait()
+		end
+	end
+end
+
+-- Run it
+TPNearestBase()
