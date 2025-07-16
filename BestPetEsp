@@ -1,0 +1,160 @@
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local ESP_NAME = "BestPodiumESP"
+local REFRESH_RATE = 0.5
+
+local currentEspGui
+local currentAdornee
+
+local function formatNumber(num)
+	local suffixes = {"", "K", "M", "B", "T", "Q"}
+	local index = 1
+	while num >= 1000 and index < #suffixes do
+		num = num / 1000
+		index = index + 1
+	end
+	return string.format("%.1f%s", num, suffixes[index])
+end
+
+local function parseValue(str)
+	if not str then return 0 end
+	str = str:lower():gsub("%s", "") -- lowercase and remove whitespace
+
+	local numberPart, suffix = str:match("([%d%.]+)([kmgtq]?)")
+	local num = tonumber(numberPart) or 0
+
+	local multipliers = {
+		k = 1e3,
+		m = 1e6,
+		g = 1e9,
+		t = 1e12,
+		q = 1e15,
+	}
+
+	local multiplier = multipliers[suffix] or 1
+
+	return num * multiplier
+end
+
+local function createESP(adornee, displayNameText, generationText)
+	if currentEspGui then currentEspGui:Destroy() end
+
+	local esp = Instance.new("BillboardGui")
+	esp.Name = ESP_NAME
+	esp.Adornee = adornee
+	esp.Size = UDim2.new(0, 300, 0, 90)
+	esp.StudsOffset = Vector3.new(0, 5.5, 0)  -- slightly above the podium
+	esp.AlwaysOnTop = true
+	esp.MaxDistance = math.huge
+	esp.Parent = playerGui
+
+	-- DisplayName label (top)
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, 0, 0.5, 0) -- top half
+	nameLabel.Position = UDim2.new(0, 0, 0, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)  -- White
+	nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	nameLabel.TextStrokeTransparency = 0
+	nameLabel.Font = Enum.Font.SourceSansBold
+	nameLabel.TextScaled = true
+	nameLabel.Text = displayNameText or "Unknown"
+	nameLabel.Parent = esp
+
+	-- Generation value label (bottom)
+	local valueLabel = Instance.new("TextLabel")
+	valueLabel.Size = UDim2.new(1, 0, 0.5, 0) -- bottom half
+	valueLabel.Position = UDim2.new(0, 0, 0.5, 0)
+	valueLabel.BackgroundTransparency = 1
+	valueLabel.TextColor3 = Color3.new(1, 1, 1)  -- White
+	valueLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	valueLabel.TextStrokeTransparency = 0
+	valueLabel.Font = Enum.Font.SourceSansBold
+	valueLabel.TextScaled = true
+	valueLabel.Text = generationText or "$0/s"
+	valueLabel.Parent = esp
+
+	currentEspGui = esp
+	currentAdornee = adornee
+end
+
+task.spawn(function()
+	while true do
+		local bestValue = -math.huge
+		local bestPodiumModel = nil
+		local bestDisplayName = ""
+		local bestGenerationText = ""
+
+		local plots = Workspace:FindFirstChild("Plots")
+		if not plots then
+			warn("[DEBUG] No 'Plots' folder in Workspace")
+			task.wait(REFRESH_RATE)
+			continue
+		end
+
+		for _, plot in ipairs(plots:GetChildren()) do
+			local podiums = plot:FindFirstChild("AnimalPodiums")
+			if podiums then
+				for _, podium in ipairs(podiums:GetChildren()) do
+					local base = podium:FindFirstChild("Base")
+					local spawnPart = base and base:FindFirstChild("Spawn")
+					local attachment = spawnPart and spawnPart:FindFirstChild("Attachment")
+					local animalOverhead = attachment and attachment:FindFirstChild("AnimalOverhead")
+					local generation = animalOverhead and animalOverhead:FindFirstChild("Generation")
+					local displayName = animalOverhead and animalOverhead:FindFirstChild("DisplayName")
+
+					if generation and generation:IsA("TextLabel") then
+						local rawText = generation.Text
+
+						local numberStr = rawText:match("%$([%d%.]+[kKmMgGtTqQ]?)") or "0"
+						numberStr = numberStr:lower()
+
+						local value = parseValue(numberStr)
+
+						print(string.format("[DEBUG] Plot %s Podium %s raw: '%s' extracted: '%s' parsed: %s", plot.Name, podium.Name, rawText, numberStr, value))
+
+						if value > bestValue then
+							bestValue = value
+							bestPodiumModel = podium
+							bestGenerationText = "$" .. formatNumber(value) .. "/s"
+							bestDisplayName = (displayName and displayName:IsA("TextLabel")) and displayName.Text or "Unknown"
+						end
+					end
+				end
+			end
+		end
+
+		if bestPodiumModel then
+			if currentAdornee ~= bestPodiumModel then
+				print("[DEBUG] Highlighting best podium:", bestPodiumModel:GetFullName(), bestValue)
+				createESP(bestPodiumModel, bestDisplayName, bestGenerationText)
+			else
+				if currentEspGui then
+					local labels = currentEspGui:GetChildren()
+					for _, child in ipairs(labels) do
+						if child:IsA("TextLabel") then
+							if child.Position == UDim2.new(0, 0, 0, 0) then
+								child.Text = bestDisplayName
+							else
+								child.Text = bestGenerationText
+							end
+						end
+					end
+				end
+			end
+		else
+			if currentEspGui then
+				currentEspGui:Destroy()
+				currentEspGui = nil
+				currentAdornee = nil
+			end
+			print("[DEBUG] No valid podium found.")
+		end
+
+		task.wait(REFRESH_RATE)
+	end
+end)
