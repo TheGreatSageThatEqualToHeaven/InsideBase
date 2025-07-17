@@ -1,0 +1,90 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerName = player.Name
+local myPlot = nil
+local baseRegion = nil
+local PLACE_ID = game.PlaceId
+local CURRENT_JOB_ID = game.JobId
+
+-- 🧠 Identify your base from the sign
+local function findMyPlot()
+	for _, plot in ipairs(Workspace.Plots:GetChildren()) do
+		local sign = plot:FindFirstChild("PlotSign")
+		if sign and sign:FindFirstChild("SurfaceGui") then
+			local gui = sign.SurfaceGui:FindFirstChild("Frame")
+			if gui then
+				local label = gui:FindFirstChild("TextLabel")
+				if label and label:IsA("TextLabel") then
+					if label.Text:lower():find(playerName:lower()) then
+						return plot
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- 🧠 Server hop
+local function serverHop()
+	local success, data = pcall(function()
+		return HttpService:JSONDecode(game:HttpGet(
+			("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(PLACE_ID)
+		))
+	end)
+
+	if success and data and data.data then
+		for _, server in pairs(data.data) do
+			if server.id ~= CURRENT_JOB_ID and server.playing < server.maxPlayers then
+				warn("[SECURITY] Another player in your base. Hopping server...")
+				TeleportService:TeleportToPlaceInstance(PLACE_ID, server.id, player)
+				return
+			end
+		end
+	end
+
+	warn("[SECURITY] No other servers found. Rejoining...")
+	TeleportService:Teleport(PLACE_ID, player)
+end
+
+-- 👁️ Check for intruders in your base
+local function monitorBase()
+	while true do
+		if myPlot then
+			local plotRegion = myPlot:GetExtentsSize()
+			local plotCFrame = myPlot:GetModelCFrame()
+
+			for _, otherPlayer in ipairs(Players:GetPlayers()) do
+				if otherPlayer ~= player then
+					local char = otherPlayer.Character
+					if char and char:FindFirstChild("HumanoidRootPart") then
+						local pos = char.HumanoidRootPart.Position
+						if (pos - plotCFrame.Position).Magnitude <= plotRegion.Magnitude / 2 then
+							warn("[SECURITY] Detected " .. otherPlayer.Name .. " inside your base.")
+							task.wait(2)
+							serverHop()
+							return
+						end
+					end
+				end
+			end
+		end
+		RunService.Heartbeat:Wait()
+	end
+end
+
+-- ⏳ Wait until your base is ready, then start
+task.spawn(function()
+	repeat
+		myPlot = findMyPlot()
+		task.wait(1)
+	until myPlot
+
+	warn("[INFO] Monitoring base: " .. myPlot.Name)
+	monitorBase()
+end)
