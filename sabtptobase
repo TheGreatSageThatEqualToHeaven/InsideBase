@@ -12,7 +12,7 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local random = Random.new()
 local teleporting = false
 local void = CFrame.new(0, -3.4028235e+38, 0)
-local tpAmt = 60
+local tpAmt
 
 -- Update character on respawn
 player.CharacterAdded:Connect(function(newChar)
@@ -30,97 +30,97 @@ task.spawn(function()
 	end
 end)
 
--- Smooth teleport function
+-- Smooth teleport function with jitter
 local function TP(position)
-	if not teleporting and hrp then
-		teleporting = true
-		if typeof(position) == "CFrame" then
-			local jitter = Vector3.new(
-				random:NextNumber(-0.0001, 0.0001),
-				random:NextNumber(-0.0001, 0.0001),
-				random:NextNumber(-0.0001, 0.0001)
-			)
-			hrp.CFrame = position + jitter
-			RunService.Heartbeat:Wait()
-		end
-		teleporting = false
-	end
+	if typeof(position) ~= "CFrame" or not hrp then return end
+	local jitter = Vector3.new(
+		random:NextNumber(-0.0001, 0.0001),
+		random:NextNumber(-0.0001, 0.0001),
+		random:NextNumber(-0.0001, 0.0001)
+	)
+	hrp.CFrame = position + jitter
+	RunService.Heartbeat:Wait()
 end
 
--- Check if player stayed at position for duration
-local function stayedAtTarget(targetPos, threshold, duration)
-	local start = tick()
-	while tick() - start < duration do
-		if (hrp.Position - targetPos).Magnitude > threshold then
-			return false
-		end
-		RunService.Heartbeat:Wait()
-	end
-	return true
-end
-
--- Teleport to your plot's Multiplier part
-local function TPToyourMultiplierPart()
-	local yourName = player.Name
+-- Find your own plot
+local function findYourPlot()
 	local plotsFolder = workspace:FindFirstChild("Plots")
-	if not plotsFolder then return end
+	if not plotsFolder then return nil end
 
-	local yourPlot
 	for _, plot in pairs(plotsFolder:GetChildren()) do
 		local plotSign = plot:FindFirstChild("PlotSign")
-		if plotSign then
-			local label = plotSign:FindFirstChild("SurfaceGui")
-				and plotSign.SurfaceGui:FindFirstChild("Frame")
-				and plotSign.SurfaceGui.Frame:FindFirstChild("TextLabel")
-			if label then
-				local content = (label.Text or ""):lower()
-				local pattern = yourName:lower() .. "[´'`]" .. "s base"
-				if content:find(pattern) then
-					yourPlot = plot
-					break
-				end
-			end
+		local textLabel = plotSign and plotSign:FindFirstChild("SurfaceGui")
+			and plotSign.SurfaceGui:FindFirstChild("Frame")
+			and plotSign.SurfaceGui.Frame:FindFirstChild("TextLabel")
+
+		if textLabel then
+			local nameMatch = textLabel.Text:lower():find(player.Name:lower() .. "[´'`]s base")
+			if nameMatch then return plot end
 		end
 	end
-
-	if not yourPlot then return end
-
-	local multiplierPart = yourPlot:FindFirstChild("Multiplier")
-	if not multiplierPart or not multiplierPart:IsA("BasePart") then return end
-
-	local target = multiplierPart.CFrame * CFrame.new(0, 2, 0)
-
-	while true do
-		-- Phase 1: Initial spam TP
-		for i = 1, math.floor((tpAmt or 60) * 0.7) do TP(target) end
-
-		-- Phase 2: Void reset
-		TP(void) RunService.Heartbeat:Wait()
-		TP(void) RunService.Heartbeat:Wait()
-
-		-- Phase 3: Final precision TP
-		for i = 1, math.floor((tpAmt or 60) / 10) do
-			TP(target)
-			RunService.Heartbeat:Wait()
-		end
-
-		-- Final boost
-		for i = 1, 5 do
-			TP(target)
-			RunService.Heartbeat:Wait()
-		end
-
-		-- Check if stayed at position for 3 seconds
-		local closeEnough = stayedAtTarget(target.Position, 10, 3)
-		if closeEnough then
-			print("Successfully teleported and stable at Multiplier.")
-			break
-		else
-			print("Teleport failed. Retrying...")
-			task.wait(0.5)
-		end
-	end
+	return nil
 end
 
--- Run teleport
-TPToyourMultiplierPart()
+-- Main reliable teleport system
+local function GuaranteedTeleportToMultiplier()
+	local yourPlot = findYourPlot()
+	if not yourPlot then warn("Your base not found.") return end
+
+	local multiplier = yourPlot:FindFirstChild("Multiplier")
+	if not multiplier or not multiplier:IsA("BasePart") then
+		warn("Multiplier not found.")
+		return
+	end
+
+	local target = multiplier.CFrame * CFrame.new(0, 2, 0)
+
+	local function distanceOK()
+		if not hrp then return false end
+		local dist = (hrp.Position - target.Position).Magnitude
+		return dist < 5
+	end
+
+	local maxRetries = 30
+	local retry = 0
+
+	while not distanceOK() and retry < maxRetries do
+		-- Phase 1: Initial rapid teleport
+		for i = 1, 15 do TP(target) end
+
+		-- Void phase to reset any stuck states
+		TP(void)
+		RunService.Heartbeat:Wait()
+		TP(void)
+		RunService.Heartbeat:Wait()
+
+		-- Final correction phase
+		for i = 1, 6 do TP(target) end
+
+		retry += 1
+	end
+
+	if distanceOK() then
+		print("[✓] Final position OK.")
+	else
+		warn("[✗] Could not reach multiplier reliably after " .. maxRetries .. " retries.")
+	end
+
+	-- Monitor in case you're force-moved away
+	task.spawn(function()
+		while true do
+			if not distanceOK() then
+				print("[!] Displaced! Re-teleporting...")
+				retry = 0
+				while not distanceOK() and retry < maxRetries do
+					for i = 1, 5 do TP(target) end
+					retry += 1
+					RunService.Heartbeat:Wait()
+				end
+			end
+			RunService.Heartbeat:Wait()
+		end
+	end)
+end
+
+-- Run it
+GuaranteedTeleportToMultiplier()
