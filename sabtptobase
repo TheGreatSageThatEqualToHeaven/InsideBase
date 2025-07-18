@@ -1,99 +1,80 @@
+-- Services
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+
+-- Player Setup
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+-- State
+local plotsFolder = Workspace:WaitForChild("Plots")
 local random = Random.new()
-
--- Config
-local MAX_RETRIES = 3
-local MAX_FINAL_DISTANCE = 30
-local VOID_CFRAME = CFrame.new(0, -3.4028234663852886e+38, 0)
-
--- Setup
-local tpAmt = 70
 local teleporting = false
-local function GetHRP()
-    local char = player.Character or player.CharacterAdded:Wait()
-    return char:WaitForChild("HumanoidRootPart", 5)
+local void = CFrame.new(0, -3.4028235e+38, 0)
+local tpAmt = 60
+
+-- Update TP power based on ping
+task.spawn(function()
+	while true do
+		local ping = player:GetNetworkPing() * 1000
+		tpAmt = math.clamp(math.floor(ping * 0.7), 20, 90)
+		RunService.Heartbeat:Wait()
+	end
+end)
+
+-- Jittered teleport method
+local function TP(pos)
+	if teleporting or not humanoidRootPart then return end
+	teleporting = true
+	if typeof(pos) == "CFrame" then
+		humanoidRootPart.CFrame = pos + Vector3.new(
+			random:NextNumber(-0.0001, 0.0001),
+			random:NextNumber(-0.0001, 0.0001),
+			random:NextNumber(-0.0001, 0.0001)
+		)
+		RunService.Heartbeat:Wait()
+	end
+	teleporting = false
 end
 
--- Jittered teleport function
-local function TP(cframe)
-    local hrp = GetHRP()
-    if not hrp or teleporting then return end
-    teleporting = true
-    hrp.CFrame = cframe + Vector3.new(
-        random:NextNumber(-0.0001, 0.0001),
-        random:NextNumber(-0.0001, 0.0001),
-        random:NextNumber(-0.0001, 0.0001)
-    )
-    task.wait()
-    teleporting = false
+-- Reliable TP with void + verification
+local function teleportWithVerification(cframe, retries)
+	local threshold = 5
+	for i = 1, (retries or 3) do
+		for _ = 1, math.floor(tpAmt * 0.7) do TP(cframe) end
+		TP(void); RunService.Heartbeat:Wait()
+		TP(void); RunService.Heartbeat:Wait()
+		for _ = 1, math.floor(tpAmt / 10) do TP(cframe); RunService.Heartbeat:Wait() end
+		task.wait(2)
+		if (humanoidRootPart.Position - cframe.Position).Magnitude <= threshold then
+			return true
+		end
+	end
+	return false
 end
 
--- Find your own plot's delivery hitbox
-local function FindYourDelivery()
-    local plots = workspace:FindFirstChild("Plots")
-    if not plots then return nil end
-    for _, plot in pairs(plots:GetChildren()) do
-        local sign = plot:FindFirstChild("PlotSign")
-        local yourBase = sign and sign:FindFirstChild("YourBase")
-        if yourBase and yourBase.Enabled then
-            return plot:FindFirstChild("DeliveryHitbox")
-        end
-    end
-    return nil
+-- Find your own delivery hitbox
+local function findYourDeliveryHitbox()
+	for _, plot in ipairs(plotsFolder:GetChildren()) do
+		local sign = plot:FindFirstChild("PlotSign")
+		local surfaceGui = sign and sign:FindFirstChild("SurfaceGui")
+		local frame = surfaceGui and surfaceGui:FindFirstChild("Frame")
+		local textLabel = frame and frame:FindFirstChild("TextLabel")
+		if textLabel and string.find(textLabel.Text, player.Name) then
+			return plot:FindFirstChild("DeliveryHitbox")
+		end
+	end
 end
 
--- Main teleport routine
-local function TeleportToYourBase()
-    local hrp = GetHRP()
-    if not hrp then
-        warn("[Teleport]: Could not get HRP.")
-        return
-    end
-
-    local hitbox = FindYourDelivery()
-    if not hitbox then
-        warn("[Teleport]: Could not find DeliveryHitbox.")
-        return
-    end
-
-    local target = hitbox.CFrame * CFrame.new(0, -3, 0)
-    local success = false
-
-    for attempt = 1, MAX_RETRIES do
-        print("[Teleport]: Attempt", attempt)
-
-        -- Phase 1: Spam teleport to target
-        for i = 1, tpAmt do
-            TP(target)
-        end
-
-        -- Phase 2: Void hop
-        for i = 1, 2 do
-            TP(VOID_CFRAME)
-        end
-
-        -- Phase 3: Final small-step teleports to target
-        for i = 1, math.floor(tpAmt / 16) do
-            TP(target)
-        end
-
-        task.wait(0.75)
-        local distance = (hrp.Position - target.Position).Magnitude
-        if distance <= MAX_FINAL_DISTANCE then
-            print("[Teleport]: Success at distance", math.floor(distance))
-            success = true
-            break
-        else
-            warn("[Teleport]: Retry - Distance too far:", math.floor(distance))
-        end
-    end
-
-    if not success then
-        warn("[Teleport]: Failed after", MAX_RETRIES, "attempts.")
-    end
+-- Main logic
+local deliveryHitbox = findYourDeliveryHitbox()
+if deliveryHitbox then
+	local targetCFrame = deliveryHitbox.CFrame * CFrame.new(0, -3, 0)
+	print("Teleporting to DeliveryHitbox...")
+	teleportWithVerification(targetCFrame, 5)
+else
+	warn("DeliveryHitbox not found for your plot.")
 end
-
--- 🚀 Execute
-TeleportToYourBase()
