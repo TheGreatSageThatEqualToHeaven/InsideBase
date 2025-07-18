@@ -61,10 +61,13 @@ local function findYourPlot()
 	return nil
 end
 
--- Main reliable teleport system
+-- Main reliable teleport system WITHOUT re-teleport on displacement
 local function GuaranteedTeleportToMultiplier()
 	local yourPlot = findYourPlot()
-	if not yourPlot then warn("Your base not found.") return end
+	if not yourPlot then 
+		warn("Your base not found.") 
+		return 
+	end
 
 	local multiplier = yourPlot:FindFirstChild("Multiplier")
 	if not multiplier or not multiplier:IsA("BasePart") then
@@ -83,6 +86,7 @@ local function GuaranteedTeleportToMultiplier()
 	local maxRetries = 30
 	local retry = 0
 
+	-- Teleport attempts until close enough or maxRetries reached
 	while not distanceOK() and retry < maxRetries do
 		-- Phase 1: Initial rapid teleport
 		for i = 1, 15 do TP(target) end
@@ -105,21 +109,7 @@ local function GuaranteedTeleportToMultiplier()
 		warn("[✗] Could not reach multiplier reliably after " .. maxRetries .. " retries.")
 	end
 
-	-- Monitor in case you're force-moved away
-	task.spawn(function()
-		while true do
-			if not distanceOK() then
-				print("[!] Displaced! Re-teleporting...")
-				retry = 0
-				while not distanceOK() and retry < maxRetries do
-					for i = 1, 5 do TP(target) end
-					retry += 1
-					RunService.Heartbeat:Wait()
-				end
-			end
-			RunService.Heartbeat:Wait()
-		end
-	end)
+	-- NO monitoring or re-teleporting loop here
 end
 
 -- Run it
